@@ -19,8 +19,8 @@ layout(location = 1) out vec4[] out_v1;
 layout(location = 2) out vec4[] out_v2;
 layout(location = 3) out vec4[] out_up;
 
-#define TESS_LVL_INNER 5
-#define TESS_LVL_OUTER 5
+#define TESS_LVL_INNER 10
+#define TESS_LVL_OUTER 10
 
 void main() {
 	// Don't move the origin location of the patch

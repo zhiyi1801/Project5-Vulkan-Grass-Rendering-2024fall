@@ -83,3 +83,10 @@ private:
     std::vector<VkCommandBuffer> commandBuffers;
     VkCommandBuffer computeCommandBuffer;
 };
+
+struct ComputePushConstant {
+    glm::vec4 G;
+    int numBlades;
+    float cullDist;
+    int cullLevels;
+};

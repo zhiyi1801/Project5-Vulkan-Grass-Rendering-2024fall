@@ -15,6 +15,8 @@ layout(location = 2) in vec4[] in_v2;
 layout(location = 3) in vec4[] in_up;
 
 layout(location = 0) out vec2 out_uv;
+layout(location = 1) out vec3 pos;
+layout(location = 2) out vec3 norm;
 
 void main() {
 	// TODO: Use u and v to parameterize along the grass blade and output positions for each vertex of the grass blade
@@ -48,6 +50,8 @@ void main() {
     float t = (u + 0.5f * v - u * v);
     //float t = u;
 
+    norm = normalize(cross(t0, t1));
+    pos = mix(c0, c1, t);
     out_uv = vec2(u, v);
-    gl_Position = camera.proj * camera.view * vec4(mix(c0, c1, t), 1.);
+    gl_Position = camera.proj * camera.view * vec4(pos, 1.);
 }

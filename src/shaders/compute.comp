@@ -12,7 +12,7 @@ layout(set = 0, binding = 0) uniform CameraBufferObject {
 layout(set = 1, binding = 0) uniform Time {
     float deltaTime;
     float totalTime;
-};
+} time;
 
 struct Blade {
     vec4 v0;
@@ -43,6 +43,14 @@ layout(set = 2, binding = 2) buffer NumBlades {
     uint firstInstance; // = 0
 } numBlades;
 
+layout(push_constant) uniform PushConstants {
+    vec4 G;
+    int maxBladesNum;
+    float cullDist;
+    int cullLevels;
+} pcs;
+
+
 bool inBounds(float value, float bounds) {
     return (value >= -bounds) && (value <= bounds);
 }
@@ -53,27 +61,86 @@ bool insideViewFrustum(vec4 point, mat4 vp){
     vec4 point_ = vp * point;
 
     float h = point_.w + 1.0f;
-    // float h = point_.w
     //float h = point_.w + tolerance;
 
     return inBounds(point_.x, h) && inBounds(point_.y, h) && inBounds(point_.z, h);
 }
 
-float hash(float n) { return fract(sin(n) * 125.54); }
+// Perlin noise https://github.com/SuboptimalEng/shader-tutorials/blob/main/05-perlin-noise/shader.frag
+vec2 randomGradient(vec2 p) {
+  p = p + 0.02;
+  float x = dot(p, vec2(123.4, 234.5));
+  float y = dot(p, vec2(234.5, 345.6));
+  vec2 gradient = vec2(x, y);
+  gradient = sin(gradient);
+  gradient = gradient * 43758.5453;
 
-vec3 random3(vec3 c) {
-	float j = 4096.0*sin(dot(c,vec3(17.0, 59.4, 15.0)));
-	vec3 r;
-	r.z = fract(512.0*j);
-	j *= .125;
-	r.x = fract(512.0*j);
-	j *= .125;
-	r.y = fract(512.0*j);
-	return r-0.5;
+  gradient = sin(gradient + time.totalTime);
+  return gradient;
+}
+
+vec2 cubic(vec2 p) {
+  return p * p * (3.0 - p * 2.0);
+}
+
+vec2 quintic(vec2 p) {
+  return p * p * p * (10.0 + p * (-15.0 + p * 6.0));
+}
+
+float perlin(vec2 xy)
+{
+    vec2 uv = fract(xy);
+    uvec2 cell = uvec2(xy-uv);
+    vec2 grad00 = randomGradient(cell+uvec2(0,0));
+    vec2 grad01 = randomGradient(cell+uvec2(0,1));
+    vec2 grad10 = randomGradient(cell+uvec2(1,0));
+    vec2 grad11 = randomGradient(cell+uvec2(1,1));
+
+    vec2 vecTo00 = uv + vec2(0.0, 0.0);
+    vec2 vecTo01 = uv + vec2(0.0, 1.0);
+    vec2 vecTo10 = uv + vec2(1.0, 0.0);
+    vec2 vecTo11 = uv + vec2(1.0, 1.0);
+
+    float dot00 = dot(vecTo00, grad00);
+    float dot01 = dot(vecTo01, grad01);
+    float dot10 = dot(vecTo10, grad10);
+    float dot11 = dot(vecTo11, grad11);
+
+    uv = cubic(uv);
+    return mix(mix(dot00, dot01, uv.x), mix(dot10, dot11, uv.x), uv.y);
+}
+
+// get wind
+vec3 getWindVector(vec3 inputPos)
+{
+    float amplitude = 5.0f;
+    float freq = 10.0f;
+    vec3 ret = vec3(0);
+    ret.x = amplitude * perlin(vec2(inputPos.x * freq, inputPos.z * freq));
+    ret.z = amplitude * perlin(vec2((inputPos.x + 100.0) * freq, (inputPos.z + 200.0) * freq));
+
+    return ret;
+}
+
+// Direction factor of wind
+float windFd(vec3 v0, vec3 v2, vec3 windVec)
+{
+    float ret = 1.0 - abs(dot(normalize(windVec), normalize(v2 - v0)));
+    return ret;
+}
+
+// Height factor of wind
+float windFr(vec3 v0, vec3 v2, vec3 n, float h)
+{
+    return dot(v2 - v0, n) / h;
 }
 
 void main() {
 	// Reset the number of blades to 0
+    if(gl_GlobalInvocationID.x > pcs.maxBladesNum)
+    {
+        return;
+    }
 	if (gl_GlobalInvocationID.x == 0) {
 		numBlades.vertexCount = 0;
 	}
@@ -91,6 +158,48 @@ void main() {
     float width = blade.v2.w;
     float stiff = blade.up.w;
 
+    // Gravity 
+    vec3 t1 = vec3(cos(phi), 0.f, sin(phi));
+    vec3 gE = normalize(pcs.G.xyz) * pcs.G.w;
+    vec3 f = normalize(cross(t1, up));
+    f = f * ((dot(f, v2 - v0) > 0) ? 1 : -1);
+    vec3 gF = 0.25f * length(gE) * f;
+    vec3 gT = gF + gE;
+
+    // recovery
+    vec3 recovery = (v0 + up * height - v2) * stiff;
+
+    // wind
+    vec3 windVec = getWindVector(v0);
+    vec3 windForce = windVec * windFr(v0, v2, up, height) * windFd(v0, v2, windVec);
+
+    // add all forces
+    vec3 deltaV2 = (recovery + gT + windForce)*time.deltaTime;
+    v2 = v2 + deltaV2;
+
+    // Correction
+    // Ensure v2 above the local plane
+    v2 = v2 - up * min(dot(up, (v2 - v0)), 0);
+
+    // Length (v2, v0) projected onto the ground
+    float l_proj = length(v2 - v0 - up * dot((v2 - v0), up));
+
+    // Modify v1
+    v1 = v0 + height * up * max(1 - (l_proj / height), 0.05 * max((l_proj / height), 1));
+
+    // ensure the length of Beizier < height
+    float L0 = length(v2 - v0);
+    float L1 = length(v1 - v0) + length(v2 - v1);
+    float n = 2.f;
+    float L = (2.f * L0 + (n - 1) * L1) / (n + 1);
+
+    float r = height / L;
+    v1 = v0 + r * (v1 - v0);
+    v2 = v1 + r * (v2 - v1);
+
+    blade.v1.xyz = v1;
+    blade.v2.xyz = v2;
+
 
 	// TODO: Cull blades that are too far away or not in the camera frustum and write them
 	// to the culled blades buffer
@@ -98,5 +207,31 @@ void main() {
 	// You want to write the visible blades to the buffer without write conflicts between threads
 
     blades[gl_GlobalInvocationID.x] = blade;
+
+    vec3 m = v0 * 0.25 + v1 * 0.5 + v2 * 0.25;
+    // Orientation Culling
+    vec3 camPos = inverse(camera.view)[3].xyz;
+    vec3 viewVec = (m - camPos - up * dot((m - camPos), up));
+    vec3 viewDir = normalize(viewVec);
+    if(!inBounds(dot(viewDir, t1), 0.96))
+    {
+        return;
+    }
+
+    // Distance culling
+    float proj_distance = length(viewVec);
+    int levels = pcs.cullLevels;
+    if(mod(gl_GlobalInvocationID.x, levels) > floor(levels * (1.0 - proj_distance/max(pcs.cullDist, 0.1))))
+    {
+        return;
+    }
+
+    // Frustrum culling
+    mat4 matViewProj = camera.proj * camera.view;
+      if(!insideViewFrustum(vec4(v0, 1.0), matViewProj) || !insideViewFrustum(vec4(v2, 1.0), matViewProj) || !insideViewFrustum(vec4(m, 1.0), matViewProj)){
+      return;
+  }
+
+
     culledBlades[atomicAdd(numBlades.vertexCount, 1)] = blade;
 }
