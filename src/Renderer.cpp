@@ -1011,7 +1011,7 @@ void Renderer::RecordComputeCommandBuffer() {
         ComputePushConstant pc{};
         pc.G = glm::vec4(0.0, -1.0, 0.0, 5.0);
         pc.numBlades = NUM_BLADES;
-        pc.cullDist = 50.0f;
+        pc.cullDist = 30.0f;
         pc.cullLevels = 100;
         vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstant), &pc);
 

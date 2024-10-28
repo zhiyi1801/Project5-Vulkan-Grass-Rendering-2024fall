@@ -16,7 +16,7 @@ layout(location = 0) out vec4 outColor;
 void main() {
     // note in_uv.y -> corresponds to height, .x width of each blade model
     vec3 topColor = vec3(1.0, 1.0, 0.2);
-    vec3 bottomColor = vec3(0.2, 0.6, 0.1);
+    vec3 bottomColor = vec3(0.6, 0.6, 0.1);
 
     float mixFactor = 2 * in_uv.y - in_uv.y * in_uv.y;
     vec3 camPos = inverse(camera.view)[3].xyz;

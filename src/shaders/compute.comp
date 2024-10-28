@@ -89,6 +89,7 @@ vec2 quintic(vec2 p) {
 
 float perlin(vec2 xy)
 {
+    xy = abs(xy);
     vec2 uv = fract(xy);
     uvec2 cell = uvec2(xy-uv);
     vec2 grad00 = randomGradient(cell+uvec2(0,0));
@@ -113,7 +114,7 @@ float perlin(vec2 xy)
 // get wind
 vec3 getWindVector(vec3 inputPos)
 {
-    float amplitude = 5.0f;
+    float amplitude = 10.0f;
     float freq = 10.0f;
     vec3 ret = vec3(0);
     ret.x = amplitude * perlin(vec2(inputPos.x * freq, inputPos.z * freq));
@@ -152,6 +153,7 @@ void main() {
     vec3 v1 = blade.v1.xyz;
     vec3 v2 = blade.v2.xyz;
     vec3 up = blade.up.xyz;
+    vec3 m = v0 * 0.25 + v1 * 0.5 + v2 * 0.25;
 
     float phi = blade.v0.w;
     float height = blade.v1.w;
@@ -208,7 +210,6 @@ void main() {
 
     blades[gl_GlobalInvocationID.x] = blade;
 
-    vec3 m = v0 * 0.25 + v1 * 0.5 + v2 * 0.25;
     // Orientation Culling
     vec3 camPos = inverse(camera.view)[3].xyz;
     vec3 viewVec = (m - camPos - up * dot((m - camPos), up));
